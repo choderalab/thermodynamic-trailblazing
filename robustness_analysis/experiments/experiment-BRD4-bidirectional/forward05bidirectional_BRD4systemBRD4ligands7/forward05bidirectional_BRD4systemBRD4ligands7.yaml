@@ -1,0 +1,132 @@
+---
+version: '1.3'
+options:
+    alchemical_pme_treatment: exact
+    anisotropic_dispersion_cutoff: auto
+    annihilate_electrostatics: true
+    annihilate_sterics: false
+    checkpoint_interval: 1000
+    constraints: HBonds
+    default_nsteps_per_iteration: 286
+    default_number_of_iterations: 0
+    default_timestep: 3.5*femtoseconds
+    experiments_dir: experiments/experiment-BRD4-bidirectional/forward05bidirectional_BRD4systemBRD4ligands7
+    hydrogen_mass: 3.0 * amu
+    minimize: true
+    output_dir: ../../..
+    pressure: 1*atmosphere
+    resume_setup: true
+    resume_simulation: true
+    setup_dir: ../yank/setup
+    temperature: 298.15*kelvin
+    verbose: true
+molecules:
+    BRD4:
+        filepath: ../../../../yank/input/4BJX-clean.pdb
+    BRD4-ligands_7:
+        antechamber:
+            charge_method: null
+        filepath: ../../../../yank/input/ligands-BRD4.mol2
+        openeye:
+            quacpac: am1-bcc
+        regions:
+            ligand_boresch_atoms: [8, 9, 29]
+            ligand_harmonic_atoms: name N1
+        select: 7
+solvents:
+    PME-neutral:
+        clearance: 12*angstroms
+        ewald_error_tolerance: 0.0001
+        negative_ion: Cl-
+        nonbonded_cutoff: 11*angstroms
+        nonbonded_method: PME
+        positive_ion: Na+
+        solvent_model: tip3p
+        switch_distance: 10*angstroms
+systems:
+    BRD4-system_BRD4ligands7:
+        leap:
+            parameters: [leaprc.protein.ff14SB, leaprc.water.tip3p, leaprc.gaff2]
+        ligand: BRD4-ligands_7
+        receptor: BRD4
+        solvent: PME-neutral
+protocols:
+    forward-05-bidirectional: !Ordered
+        complex:
+            alchemical_path:
+                lambda_electrostatics: [1.0, 0.9578621697123438, 0.8918938883863434,
+                    0.8273219061283931, 0.7594180929781295, 0.691760467686586, 0.6241706909266332,
+                    0.5512839559651541, 0.4788241237290323, 0.41203367294898774, 0.34936290303143214,
+                    0.2853326690714392, 0.21348890198224152, 0.1315312612413425, 0.04385462067501671,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0, 0.0]
+                lambda_restraints: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                    1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                    1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                    1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                    1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+                lambda_sterics: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                    1.0, 1.0, 1.0, 1.0, 1.0, 0.9850975514746432, 0.9548932367590663,
+                    0.9234740683197291, 0.8919383504322745, 0.8655590060362089, 0.8379369010856071,
+                    0.8102895679747657, 0.7826121256866998, 0.7533040146652671, 0.7232499194067706,
+                    0.6971904127272559, 0.6732721427121882, 0.6494507870938131, 0.6230556344019346,
+                    0.5943394025013393, 0.5650945862165472, 0.536693709080775, 0.5090716179653897,
+                    0.48423357202369527, 0.4609598386677612, 0.43869397659219994,
+                    0.416616893821431, 0.3945315026342602, 0.3742381382987757, 0.3538509616244707,
+                    0.33271924439374023, 0.3116487110057321, 0.2909008758105012, 0.2704689700187374,
+                    0.25303385267023815, 0.23654012363665394, 0.22038268798112912,
+                    0.20425649836632723, 0.1882767522596397, 0.17264892936406057,
+                    0.15829148709066782, 0.14218599311099772, 0.12253272429518142,
+                    0.10113507654949526, 0.07810349113426321, 0.0519176704666887,
+                    0.024213246306453745, 0.0]
+            trailblazer_options:
+                bidirectional_redistribution: true
+                constrain_receptor: false
+                distance_tolerance: 0.05
+                n_equilibration_iterations: 1000
+                n_samples_per_state: 100
+                reversed_direction: false
+                thermodynamic_distance: 0.5
+        solvent:
+            alchemical_path:
+                lambda_electrostatics: [1.0, 0.9432515513028917, 0.8883740787570803,
+                    0.8337330476399063, 0.7816328291735233, 0.7257816286357563, 0.6654895609708725,
+                    0.6079209045414317, 0.5495740932166858, 0.490658131355499, 0.43113489358649665,
+                    0.36460983887996695, 0.29968701096290584, 0.23914926121301303,
+                    0.17403274416396658, 0.1023286112141636, 0.027497674537057332,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                    0.0, 0.0]
+                lambda_sterics: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                    1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9744673299983222, 0.9341971388840248,
+                    0.8943601838308701, 0.8561621696282502, 0.818269871048969, 0.7807171716928376,
+                    0.7445032354369755, 0.710904906724931, 0.6799400274833091, 0.6513082916124382,
+                    0.6237367341786918, 0.5963838708464512, 0.5704856769835267, 0.5453385403926343,
+                    0.5206029408824567, 0.4965688275765183, 0.4736762037019618, 0.451889446138499,
+                    0.4291877689157389, 0.40804950962722464, 0.3884481046464984, 0.36985283045698236,
+                    0.3514804527508495, 0.3334790032786158, 0.31669542145558066, 0.30099634199265546,
+                    0.2860376998399125, 0.2715145139904609, 0.25767299366897634, 0.24487291495109956,
+                    0.23405007814404086, 0.22339275182477863, 0.21026810637549986,
+                    0.1956445485482276, 0.1809824935490191, 0.16424139941546345, 0.14351330112932403,
+                    0.11885759186015891, 0.08848404308554617, 0.04956983368520981,
+                    0.0]
+            trailblazer_options:
+                bidirectional_redistribution: true
+                constrain_receptor: false
+                distance_tolerance: 0.05
+                n_equilibration_iterations: 1000
+                n_samples_per_state: 100
+                reversed_direction: false
+                thermodynamic_distance: 0.5
+experiments:
+    protocol: forward-05-bidirectional
+    restraint:
+        restrained_ligand_atoms: ligand_harmonic_atoms
+        restrained_receptor_atoms: (resi 40 or resi 45 or resi 55 or resi 98 or resi
+            104) and (name CA or name C or name N)
+        spring_constant: 0.3 * kilocalories_per_mole/(angstrom**2)
+        type: Harmonic
+    system: BRD4-system_BRD4ligands7

@@ -1,0 +1,122 @@
+---
+version: '1.3'
+options:
+    alchemical_pme_treatment: exact
+    anisotropic_dispersion_cutoff: auto
+    annihilate_electrostatics: true
+    annihilate_sterics: false
+    checkpoint_interval: 1000
+    constraints: HBonds
+    default_nsteps_per_iteration: 286
+    default_number_of_iterations: 0
+    default_timestep: 3.5*femtoseconds
+    experiments_dir: experiments/experiment-CB8-bidirectional/forward10bidirectional_CB8systemCB8ligands1_2
+    hydrogen_mass: 3.0 * amu
+    minimize: true
+    output_dir: ../../..
+    pressure: 1*atmosphere
+    resume_setup: true
+    resume_simulation: true
+    setup_dir: ../yank/setup
+    temperature: 298.15*kelvin
+    verbose: true
+molecules:
+    CB8:
+        antechamber:
+            charge_method: null
+        filepath: ../../../../yank/input/CB8.mol2
+        openeye:
+            quacpac: am1-bcc
+    CB8-ligands_1:
+        antechamber:
+            charge_method: null
+        filepath: ../../../../yank/input/ligands-CB8.mol2
+        openeye:
+            quacpac: am1-bcc
+        select: 1
+solvents:
+    PME-25mM-sodium:
+        clearance: 12*angstroms
+        ewald_error_tolerance: 0.0001
+        ionic_strength: 57.8*millimolar
+        negative_ion: Cl-
+        nonbonded_cutoff: 11*angstroms
+        nonbonded_method: PME
+        positive_ion: Na+
+        solvent_model: tip3p
+        switch_distance: 10*angstroms
+systems:
+    CB8-system_CB8ligands1:
+        leap:
+            parameters: [leaprc.protein.ff14SB, leaprc.water.tip3p, leaprc.gaff2]
+        ligand: CB8-ligands_1
+        receptor: CB8
+        solvent: PME-25mM-sodium
+protocols:
+    forward-10-bidirectional: !Ordered
+        complex:
+            alchemical_path:
+                lambda_electrostatics: [1.0, 0.9667089735584449, 0.9168841691097379,
+                    0.865280330618157, 0.8146944363881622, 0.7645739328529001, 0.7169326724241589,
+                    0.6716445907412373, 0.6255278825627703, 0.5788199141521279, 0.5320322698930077,
+                    0.4848729727998024, 0.43583555234954213, 0.38520579559553253,
+                    0.33396097009165243, 0.2819147537062937, 0.23114089744749225,
+                    0.17998597664702254, 0.12689162022577635, 0.0745480303008882,
+                    0.02187517462195203, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                    0.0, 0.0]
+                lambda_restraints: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                    1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                    1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                    1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+                lambda_sterics: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                    1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9608922602854633,
+                    0.8964813442572329, 0.8341207030530703, 0.7793403485662691, 0.7260527761786119,
+                    0.6731800388732366, 0.6205674763457849, 0.5699295895251486, 0.5272185057003064,
+                    0.4868916734487562, 0.448047031554369, 0.4091840499768252, 0.3701798688844508,
+                    0.33317090833840357, 0.3040280297374288, 0.2786253072816981, 0.25583115703149084,
+                    0.22898500834298782, 0.19763433172014763, 0.1628580002601092,
+                    0.12167571366318178, 0.0758746192203098, 0.036277075771450805,
+                    0.0]
+            trailblazer_options:
+                bidirectional_redistribution: true
+                constrain_receptor: false
+                distance_tolerance: 0.05
+                n_equilibration_iterations: 1000
+                n_samples_per_state: 100
+                reversed_direction: false
+                thermodynamic_distance: 1.0
+        solvent:
+            alchemical_path:
+                lambda_electrostatics: [1.0, 0.9506178572730088, 0.9008455543302722,
+                    0.8548486867841628, 0.8094244553673324, 0.7633101982592052, 0.7185013972176326,
+                    0.6713527971028765, 0.6214340025826639, 0.5720267486440189, 0.5243448924574101,
+                    0.4774615054854398, 0.42907455427223773, 0.37983018322353046,
+                    0.3296715186500045, 0.2781045850464719, 0.22827955143297754, 0.1793194512470715,
+                    0.12574784613120507, 0.0654454149329324, 0.007612113735326886,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+                lambda_sterics: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                    1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9365039807208315,
+                    0.8650311901689705, 0.7975803103324757, 0.7387953485674776, 0.6836302444942515,
+                    0.6324918599300293, 0.5855606883760035, 0.5391556868745341, 0.4926311806841807,
+                    0.4472310423388479, 0.4032084819879313, 0.36091272553660314, 0.3215598345292318,
+                    0.2866848169293091, 0.2565521740137951, 0.229633564692733, 0.20416979947004765,
+                    0.17354492053014464, 0.13338347999182776, 0.08053031664619599,
+                    0.0]
+            trailblazer_options:
+                bidirectional_redistribution: true
+                constrain_receptor: false
+                distance_tolerance: 0.05
+                n_equilibration_iterations: 1000
+                n_samples_per_state: 100
+                reversed_direction: false
+                thermodynamic_distance: 1.0
+experiments:
+    protocol: forward-10-bidirectional
+    restraint:
+        restrained_ligand_atoms: (resname MOL) and (mass > 1.5)
+        restrained_receptor_atoms: (resname HST) and (mass > 1.5)
+        spring_constant: 0.3 * kilocalories_per_mole/(angstrom**2)
+        type: Harmonic
+    system: CB8-system_CB8ligands1

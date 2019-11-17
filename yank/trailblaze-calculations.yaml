@@ -1,0 +1,310 @@
+---
+
+options:
+  verbose: yes
+  resume_setup: yes
+  resume_simulation: yes
+  output_dir: .
+
+  temperature: 298.15*kelvin
+  pressure: 1*atmosphere
+  hydrogen_mass: 3.0 * amu
+  constraints: HBonds
+  anisotropic_dispersion_cutoff: auto
+
+  minimize: yes
+  default_number_of_iterations: 0
+  # Each iteration is about 1ps/replica.
+  default_nsteps_per_iteration: 286
+  default_timestep: 3.5*femtoseconds
+  checkpoint_interval: 1000
+
+  annihilate_electrostatics: yes
+  annihilate_sterics: no
+  alchemical_pme_treatment: exact
+
+
+# Molecules
+# ---------
+
+oe_charges: &oe_charges
+  openeye:
+    quacpac: am1-bcc
+  antechamber:
+    charge_method: null
+
+common_BRD4-ligands: &common_BRD4-ligands
+  filepath: input/ligands-BRD4.mol2
+  <<: *oe_charges
+
+molecules:
+  CB8:
+    filepath: input/CB8.mol2
+    <<: *oe_charges
+  CB8-ligands:
+    # We only consider CB8-G0/2/3/5/6/7/8/9/10 since the others are either
+    # part of the bonus challenge or have weird stoichiometry.
+    filepath: input/ligands-CB8.mol2
+    select: !Combinatorial [1, 2, 5, 6]
+    <<: *oe_charges
+
+  T4-L99A:
+    filepath: input/l99a-55.mcce.pdb
+  T4-L99A-ligands:
+    filepath: input/ligands-l99a-1-16.mol2
+    select: !Combinatorial [4, 6, 9, 14]
+    <<: *oe_charges
+
+
+# Solvents
+# --------
+
+common_PME: &common_PME
+  nonbonded_method: PME
+  clearance: 12*angstroms
+  nonbonded_cutoff: 11*angstroms
+  switch_distance: 10*angstroms
+  ewald_error_tolerance: 1.0e-4
+  negative_ion: Cl-
+  positive_ion: Na+
+  solvent_model: tip3p
+
+solvents:
+  PME-50mM-acetate:  # For T4
+    <<: *common_PME
+    ionic_strength: 43.44*millimolar
+  PME-25mM-sodium: # For CB8
+    <<: *common_PME
+    ionic_strength: 57.8*millimolar  # 3.1mM NaH2PO4 + 21.9mM NaOH
+
+
+# Systems
+# -------
+
+systems:
+  CB8-system:
+    receptor: CB8
+    ligand: CB8-ligands
+    solvent: PME-25mM-sodium
+    leap:
+      parameters: [leaprc.protein.ff14SB, leaprc.water.tip3p, leaprc.gaff2]
+
+  T4-system:
+    receptor: T4-L99A
+    ligand: T4-L99A-ligands
+    solvent: PME-50mM-acetate
+    leap:
+      parameters: [leaprc.protein.ff14SB, leaprc.water.tip3p, leaprc.gaff2]
+
+
+# Samplers
+# --------
+
+# Turn off online analysis.
+samplers:
+  hrex:
+    type: ReplicaExchangeSampler
+    online_analysis_interval: null
+
+
+# Experiments
+# -----------
+
+protocols:
+  trailblaze-05:
+    complex:
+      trailblazer_options:
+        reversed_direction: no
+        thermodynamic_distance: 0.5
+        n_samples_per_state: 200
+      alchemical_path: auto
+    solvent:
+      trailblazer_options:
+        reversed_direction: no
+        thermodynamic_distance: 0.5
+        n_samples_per_state: 200
+      alchemical_path: auto
+
+  trailblaze-10:
+    complex:
+      trailblazer_options:
+        reversed_direction: no
+        thermodynamic_distance: 1.0
+        n_samples_per_state: 200
+      alchemical_path: auto
+    solvent:
+      trailblazer_options:
+        reversed_direction: no
+        thermodynamic_distance: 1.0
+        n_samples_per_state: 200
+      alchemical_path: auto
+
+  trailblaze-20:
+    complex:
+      trailblazer_options:
+        reversed_direction: no
+        thermodynamic_distance: 2.0
+        n_samples_per_state: 200
+      alchemical_path: auto
+    solvent:
+      trailblazer_options:
+        reversed_direction: no
+        thermodynamic_distance: 2.0
+        n_samples_per_state: 200
+      alchemical_path: auto
+
+  manual-10-CB8:
+    complex:
+      alchemical_path:
+        lambda_restraints: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                            1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                            1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                            1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                            1.0, 1.0, 1.0]
+        lambda_electrostatics: [1.0, 1.0, 0.9230769230769231, 0.8461538461538461, 0.7692307692307692, 0.6923076923076923, 0.6153846153846154, 0.5384615384615384, 0.46153846153846145, 0.3846153846153846,
+                                0.3076923076923077, 0.23076923076923073, 0.15384615384615374, 0.07692307692307687, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0]
+        lambda_sterics: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                         1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.962962962962963, 0.9259259259259259, 0.8888888888888888, 0.8518518518518519,
+                         0.8148148148148149, 0.7777777777777778, 0.7407407407407407, 0.7037037037037037, 0.6666666666666667, 0.6296296296296297, 0.5925925925925926, 0.5555555555555556, 0.5185185185185186, 0.4814814814814815,
+                         0.4444444444444444, 0.40740740740740744, 0.37037037037037046, 0.33333333333333337, 0.2962962962962963, 0.2592592592592593, 0.22222222222222232, 0.18518518518518523, 0.14814814814814814, 0.11111111111111116,
+                         0.07407407407407418, 0.03703703703703709, 0.0]
+    solvent:
+      alchemical_path:
+        lambda_electrostatics: [1.0, 0.9230769230769231, 0.8461538461538461, 0.7692307692307692, 0.6923076923076923, 0.6153846153846154, 0.5384615384615384, 0.46153846153846145, 0.3846153846153846, 0.3076923076923077,
+                                0.23076923076923073, 0.15384615384615374, 0.07692307692307687, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0]
+        lambda_sterics: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                         1.0, 1.0, 1.0, 1.0, 1.0, 0.9615384615384616, 0.9230769230769231, 0.8846153846153846, 0.8461538461538461, 0.8076923076923077,
+                         0.7692307692307692, 0.7307692307692307, 0.6923076923076923, 0.6538461538461539, 0.6153846153846154, 0.5769230769230769, 0.5384615384615384, 0.5, 0.46153846153846145, 0.423076923076923,
+                         0.3846153846153846, 0.34615384615384615, 0.3076923076923077, 0.26923076923076916, 0.23076923076923073, 0.1923076923076923, 0.15384615384615374, 0.11538461538461531, 0.07692307692307687, 0.038461538461538436,
+                         0.0]
+
+  manual-10-T4:
+    complex:
+      alchemical_path:
+        lambda_restraints: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                            1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+        lambda_electrostatics: [1.0, 1.0, 0.75, 0.5, 0.25, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        lambda_sterics: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9, 0.8, 0.7,
+                         0.6, 0.5, 0.3999999999999999, 0.29999999999999993, 0.19999999999999996, 0.09999999999999998, 0.0]
+    solvent:
+      alchemical_path:
+        lambda_electrostatics: [1.0, 0.8333333333333334, 0.6666666666666667, 0.5, 0.33333333333333337, 0.16666666666666674, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        lambda_sterics: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9166666666666666, 0.8333333333333334,
+                         0.75, 0.6666666666666667, 0.5833333333333334, 0.5, 0.41666666666666674, 0.33333333333333337, 0.25, 0.16666666666666674, 0.08333333333333337, 0.0]
+
+  manual-20-CB8:
+    complex:
+      alchemical_path:
+        lambda_restraints: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                            1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                            1.0, 1.0]
+        lambda_electrostatics: [1.0, 1.0, 0.8333333333333334, 0.6666666666666667, 0.5, 0.33333333333333337, 0.16666666666666674, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0]
+        lambda_sterics: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9230769230769231,
+                         0.8461538461538461, 0.7692307692307692, 0.6923076923076923, 0.6153846153846154, 0.5384615384615384, 0.46153846153846145, 0.3846153846153846, 0.3076923076923077, 0.23076923076923073, 0.15384615384615374,
+                         0.07692307692307687, 0.0]
+    solvent:
+      alchemical_path:
+        lambda_electrostatics: [1.0, 0.8333333333333334, 0.6666666666666667, 0.5, 0.33333333333333337, 0.16666666666666674, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0]
+        lambda_sterics: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9230769230769231, 0.8461538461538461,
+                         0.7692307692307692, 0.6923076923076923, 0.6153846153846154, 0.5384615384615384, 0.46153846153846145, 0.3846153846153846, 0.3076923076923077, 0.23076923076923073, 0.15384615384615374, 0.07692307692307687,
+                         0.0]
+
+  manual-20-T4:
+    complex:
+      alchemical_path:
+        lambda_restraints: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+        lambda_electrostatics: [1.0, 1.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        lambda_sterics: [1.0, 1.0, 1.0, 1.0, 1.0, 0.75, 0.5, 0.25, 0.0]
+    solvent:
+      alchemical_path:
+        lambda_electrostatics: [1.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        lambda_sterics: [1.0, 1.0, 1.0, 1.0, 0.8333333333333334, 0.6666666666666667, 0.5, 0.33333333333333337, 0.16666666666666674, 0.0]
+
+
+
+common_exp_CB8: &common_exp_CB8
+  sampler: hrex
+  restraint:
+    type: Harmonic
+    restrained_ligand_atoms: (resname MOL) and (mass > 1.5)
+    restrained_receptor_atoms: (resname HST) and (mass > 1.5)
+    spring_constant: 0.3 * kilocalories_per_mole/(angstrom**2)
+
+experiment-CB8-main:
+  system: CB8-system
+  protocol: !Combinatorial [trailblaze-05, trailblaze-10, trailblaze-20]
+  <<: *common_exp_CB8
+
+experiment-CB8-replicates:
+  system: !Combinatorial [CB8-system, CB8-system, CB8-system, CB8-system]
+  protocol: !Combinatorial [trailblaze-05, trailblaze-10, trailblaze-20]
+  <<: *common_exp_CB8
+
+experiment-CB8-manual-main:
+  system: CB8-system
+  protocol: !Combinatorial [manual-10-CB8, manual-20-CB8]
+  <<: *common_exp_CB8
+
+experiment-CB8-manual-replicates:
+  system: !Combinatorial [CB8-system, CB8-system, CB8-system, CB8-system]
+  protocol: !Combinatorial [manual-10-CB8, manual-20-CB8]
+  <<: *common_exp_CB8
+
+experiment-CB8-unseeded-main:
+  system: CB8-system
+  protocol: !Combinatorial [trailblaze-10, trailblaze-20]
+  options:
+    start_from_trailblaze_samples: no
+  <<: *common_exp_CB8
+
+experiment-CB8-unseeded-replicates:
+  system: !Combinatorial [CB8-system, CB8-system, CB8-system, CB8-system]
+  protocol: !Combinatorial [trailblaze-10, trailblaze-20]
+  options:
+    start_from_trailblaze_samples: no
+  <<: *common_exp_CB8
+
+
+
+common_exp_T4: &common_exp_T4
+  sampler: hrex
+  restraint:
+    type: Harmonic
+    restrained_ligand_atoms: (resname MOL) and (mass > 1.5)
+    restrained_receptor_atoms: (resi 77 or resi 83 or resi 86 or resi 87 or resi 90 or resi 98 or resi 101 or resi 102 or resi 110 or resi 117 or resi 120 or resi 152) and (mass > 1.5)
+    spring_constant: 0.5 * kilocalories_per_mole/(angstrom**2)
+
+experiment-T4-main:
+  system: T4-system
+  protocol: !Combinatorial [trailblaze-05, trailblaze-10, trailblaze-20]
+  <<: *common_exp_T4
+
+experiment-T4-replicates:
+  system: !Combinatorial [T4-system, T4-system, T4-system, T4-system]
+  protocol: !Combinatorial [trailblaze-05, trailblaze-10, trailblaze-20]
+  <<: *common_exp_T4
+
+experiment-T4-manual-main:
+  system: T4-system
+  protocol: !Combinatorial [manual-10-T4, manual-20-T4]
+  <<: *common_exp_T4
+
+experiment-T4-manual-replicates:
+  system: !Combinatorial [T4-system, T4-system, T4-system, T4-system]
+  protocol: !Combinatorial [manual-10-T4, manual-20-T4]
+  <<: *common_exp_T4
+
+
+experiments: [experiment-CB8-unseeded-main, experiment-CB8-unseeded-replicates, experiment-CB8-main, experiment-T4-main, experiment-CB8-manual-main, experiment-T4-manual-main, experiment-CB8-replicates, experiment-T4-replicates, experiment-CB8-manual-replicates, experiment-T4-manual-replicates]

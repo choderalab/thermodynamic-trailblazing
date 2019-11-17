@@ -1,0 +1,18 @@
+lambda_electrostatics:
+- 1.0
+- 1.0
+- 0.0
+- 0.0
+- 0.0
+lambda_restraints:
+- 0.0
+- 1.0
+- 1.0
+- 1.0
+- 1.0
+lambda_sterics:
+- 1.0
+- 1.0
+- 1.0
+- 0.47745876333773185
+- 0.0

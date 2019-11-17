@@ -1,0 +1,121 @@
+---
+version: '1.3'
+options:
+    alchemical_pme_treatment: exact
+    anisotropic_dispersion_cutoff: auto
+    annihilate_electrostatics: true
+    annihilate_sterics: false
+    checkpoint_interval: 1000
+    constraints: HBonds
+    default_nsteps_per_iteration: 286
+    default_number_of_iterations: 0
+    default_timestep: 3.5*femtoseconds
+    experiments_dir: experiments/experiment-CB8-bidirectional/forward10bidirectional_CB8systemCB8ligands2_2
+    hydrogen_mass: 3.0 * amu
+    minimize: true
+    output_dir: ../../..
+    pressure: 1*atmosphere
+    resume_setup: true
+    resume_simulation: true
+    setup_dir: ../yank/setup
+    temperature: 298.15*kelvin
+    verbose: true
+molecules:
+    CB8:
+        antechamber:
+            charge_method: null
+        filepath: ../../../../yank/input/CB8.mol2
+        openeye:
+            quacpac: am1-bcc
+    CB8-ligands_2:
+        antechamber:
+            charge_method: null
+        filepath: ../../../../yank/input/ligands-CB8.mol2
+        openeye:
+            quacpac: am1-bcc
+        select: 2
+solvents:
+    PME-25mM-sodium:
+        clearance: 12*angstroms
+        ewald_error_tolerance: 0.0001
+        ionic_strength: 57.8*millimolar
+        negative_ion: Cl-
+        nonbonded_cutoff: 11*angstroms
+        nonbonded_method: PME
+        positive_ion: Na+
+        solvent_model: tip3p
+        switch_distance: 10*angstroms
+systems:
+    CB8-system_CB8ligands2:
+        leap:
+            parameters: [leaprc.protein.ff14SB, leaprc.water.tip3p, leaprc.gaff2]
+        ligand: CB8-ligands_2
+        receptor: CB8
+        solvent: PME-25mM-sodium
+protocols:
+    forward-10-bidirectional: !Ordered
+        complex:
+            alchemical_path:
+                lambda_electrostatics: [1.0, 0.9748686117737738, 0.9272962625932543,
+                    0.8808109494966173, 0.835828284086456, 0.7903610599263887, 0.7434261206416158,
+                    0.6954266031627566, 0.6467043640421255, 0.598423147438935, 0.5498939391339509,
+                    0.4992494359833487, 0.4475972740417401, 0.39397664371840707, 0.33965056801482174,
+                    0.2875576343830701, 0.23646209457037798, 0.18543482035124287,
+                    0.13473624413513574, 0.0819500329021034, 0.024754562992991395,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+                lambda_restraints: [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                    1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                    1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                    1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+                lambda_sterics: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                    1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9645498593465627,
+                    0.9040701617061483, 0.8437998179512433, 0.7801795208361592, 0.7247235225376311,
+                    0.6725331406043918, 0.6265866943267496, 0.5888197806018527, 0.5546318619389188,
+                    0.5208255350464636, 0.48439492490450614, 0.4452965927434522, 0.4068121022730316,
+                    0.3735594916912935, 0.3419931566371185, 0.31234006889204086, 0.2840266806066586,
+                    0.2571005029575514, 0.2309052451222509, 0.20205288396268328, 0.16671595888719407,
+                    0.12769941567579263, 0.08941256527032201, 0.048941882556435896,
+                    5.3913711375565276e-05, 0.0]
+            trailblazer_options:
+                bidirectional_redistribution: true
+                constrain_receptor: false
+                distance_tolerance: 0.05
+                n_equilibration_iterations: 1000
+                n_samples_per_state: 100
+                reversed_direction: false
+                thermodynamic_distance: 1.0
+        solvent:
+            alchemical_path:
+                lambda_electrostatics: [1.0, 0.9512566925166277, 0.906294665285966,
+                    0.8632303134055062, 0.8163100536758447, 0.7693960748882198, 0.7180403697390947,
+                    0.6674859168000211, 0.6209472989959575, 0.5760088541807767, 0.5300561897537829,
+                    0.48269127249587707, 0.4348927612669935, 0.38728091796299446,
+                    0.3407146651409948, 0.2918096484521745, 0.2368890322126086, 0.1813719549037585,
+                    0.12469719938767271, 0.06850632589312289, 0.01713218647373209,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+                lambda_sterics: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                    1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9557793124098056,
+                    0.8867852896341758, 0.8174629649267684, 0.7523669481838909, 0.6957339002915134,
+                    0.6458447465161661, 0.6038751420604469, 0.559838701036122, 0.5173046634080478,
+                    0.4756762175592192, 0.43293017784153975, 0.3876828163850027, 0.3438317407275429,
+                    0.3115685164414517, 0.2809724903012828, 0.2523964271885767, 0.2239636222534165,
+                    0.19546718733644647, 0.16493158898898017, 0.12465787907960821,
+                    0.06404881866562773, 0.0]
+            trailblazer_options:
+                bidirectional_redistribution: true
+                constrain_receptor: false
+                distance_tolerance: 0.05
+                n_equilibration_iterations: 1000
+                n_samples_per_state: 100
+                reversed_direction: false
+                thermodynamic_distance: 1.0
+experiments:
+    protocol: forward-10-bidirectional
+    restraint:
+        restrained_ligand_atoms: (resname MOL) and (mass > 1.5)
+        restrained_receptor_atoms: (resname HST) and (mass > 1.5)
+        spring_constant: 0.3 * kilocalories_per_mole/(angstrom**2)
+        type: Harmonic
+    system: CB8-system_CB8ligands2
