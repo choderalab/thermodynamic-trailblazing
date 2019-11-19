@@ -5,6 +5,49 @@ import numpy as np
 import scipy.integrate
 
 
+# =============================================================================
+# UTILITIES
+# =============================================================================
+
+def read_states_energies(nc_file_path):
+    """Return the MBAR energy matrix in kln form.
+
+    Parameters
+    ----------
+    nc_file_path : str
+        The path to the NetCDF file containing the energies.
+
+    Returns
+    -------
+    mbar_energies : np.array
+        mbar_energies[k][l][n] is the reduced potential sampled at state k
+        and evaluated at state l at iteration n.
+
+    """
+    from openmmtools.multistate import MultiStateReporter
+    reporter = MultiStateReporter(nc_file_path, open_mode='r')
+
+    # Read the mbar energies in iteration - replica - state form.
+    try:
+        replica_energies, _, _ = reporter.read_energies()
+        replicas_state_indices = reporter.read_replica_thermodynamic_states()
+    finally:
+        reporter.close()
+
+    # Create the mbar energies in state - state - iteration form.
+    n_iterations, n_replicas, n_states = replica_energies.shape
+    states_energies = np.empty(shape=(n_states, n_states, n_iterations), dtype=np.float64)
+    for iteration in range(n_iterations):
+        state_indices = replicas_state_indices[iteration]
+        states_energies[state_indices,:,iteration] = replica_energies[iteration,:,:]
+
+    return states_energies
+
+
+# =============================================================================
+# THERMO LENGTH ESTIMATORS
+# =============================================================================
+
 def estimate_thermo_length_from_definition(mbar_energies, protocol):
     """Estimate the thermodynamic length from the definition.
 
@@ -120,8 +163,8 @@ def sparsify_mbar_energies(mbar_energies, step):
     return mbar_energies
 
 
-def estimate_thermo_length_from_BAR(mbar_energies, step=1):
-    """Compute the thermodynamic length using the BAR estimator in Crooks 2007.
+def estimate_thermo_length_from_JS(mbar_energies, step=1):
+    """Compute the thermodynamic length using the JS estimator in Crooks 2007 based on BAR.
 
     Parameters
     ----------
@@ -194,9 +237,6 @@ def estimate_thermo_length_from_std(mbar_energies, step=1):
     cumulative_std_R : numpy.ndarray
         The thermodynamic length estimate computed from the standard deviation
         of the instantaneous work in the reverse direction.
-    cumulative_std_avg : numpy.ndarray
-        The thermodynamic length estimate computed from the average of the forward
-        and reverse estimates.
 
     """
     # Check if we need to consider only a subset of states.
@@ -221,8 +261,113 @@ def estimate_thermo_length_from_std(mbar_energies, step=1):
 
     # Compute the estimate of the thermo length.
     cum_std_F, cum_std_R = np.cumsum(std_F), np.cumsum(std_R)
+    return cum_std_F, cum_std_R
 
-    # Compute also the average std using both directions.
-    cum_std_avg = cum_std_F + cum_std_R / 2
 
-    return cum_std_F, cum_std_R, cum_std_avg
+# =============================================================================
+# ACCEPTANCE RATES ANALYSIS
+# =============================================================================
+
+def lower_bound_neighbor_acceptance_rates(thermodynamic_distance, log=False):
+    """The lower bound found by Shenfeld et al. for the neighbor acceptance rate.
+
+    Parameters
+    ----------
+    thermodynamic_distance : float
+        The thermodynamic distance between two states in kT.
+    log : bool, optional, default=False
+        If True, the bound on the log neighbor acceptance rate is returned.
+    """
+    log_lower_bound = -thermodynamic_distance**2/4 - thermodynamic_distance/np.sqrt(2)
+    if log:
+        return log_lower_bound
+    return np.exp(log_lower_bound)
+
+
+def derivative_lower_bound_neighbor_acceptance_rates(thermodynamic_distance, log=False):
+    """The derivative of the acceptance rate lower bound w.r.t. the thermodynamic distance.
+
+    Parameters
+    ----------
+    thermodynamic_distance : float
+        The thermodynamic distance between two states in kT.
+    log : bool, optional, default=False
+        If True, the derivative of the bound on the log neighbor acceptance rate is returned.
+    """
+    s = thermodynamic_distance  # Shortcut.
+    if log:
+        return  - (s/2 + 1/np.sqrt(2))
+    return - (s/2 + 1/np.sqrt(2)) * np.exp(-s**2/4 - s/np.sqrt(2))
+
+
+def upper_bound_neighbor_acceptance_rates(thermodynamic_distance, log=False):
+    """The upper bound found by Shenfeld et al. for the neighbor acceptance rate.
+
+    Parameters
+    ----------
+    thermodynamic_distance : float
+        The thermodynamic distance between two states in kT.
+    log : bool, optional, default=False
+        If True, the bound on the log neighbor acceptance rate is returned.
+    """
+    log_upper_bound = -thermodynamic_distance**2 / 4
+    if log:
+        return log_upper_bound
+    return np.exp(log_upper_bound)
+
+
+def derivative_upper_bound_neighbor_acceptance_rates(thermodynamic_distance, log=False):
+    """The derivative of the acceptance rate upper bound w.r.t. the thermodynamic distance.
+
+    Parameters
+    ----------
+    thermodynamic_distance : float
+        The thermodynamic distance between two states in kT.
+    log : bool, optional, default=False
+        If True, the derivative of the bound on the log neighbor acceptance rate is returned.
+    """
+    s = thermodynamic_distance  # Shortcut.
+    if log:
+        return -s/2
+    return - s/2 * np.exp(-s**2/4)
+
+
+def compute_average_neighbor_acceptance_rates(mbar_energies, step=1):
+    """Compute the average neighbor acceptance rates from the MBAR energy matrix.
+
+    Parameters
+    ----------
+    mbar_energies : numpy.ndarray
+        mbar_energies[k][l][n] is the reduced potential sampled at state k and
+        evaluated at state l at iteration n.
+    step : int, optional
+        How much to sparsify states. For example, if 2, the acceptance
+        rates are computed between every 2 states.
+
+    Returns
+    -------
+    neighbor_acceptance_rates : np.ndarray
+        neighbor_acceptance_rates[i] is the mean acceptance rate
+        between states i*step and i*step+step.
+    """
+    n_states = mbar_energies.shape[0]
+    state_indices = range(0, n_states-step, step)
+
+    neighbor_acceptance_rates = np.empty(shape=len(state_indices))
+    acceptance_rates_cis = np.empty(shape=len(state_indices))
+
+    for i, state_idx in enumerate(state_indices):
+        # Compte log p accept for all iterations.
+        energy_ij = mbar_energies[state_idx, state_idx+step, :]
+        energy_ji = mbar_energies[state_idx+step, state_idx, :]
+        energy_ii = mbar_energies[state_idx, state_idx, :]
+        energy_jj = mbar_energies[state_idx+step, state_idx+step, :]
+        log_p_accept = energy_ii + energy_jj - (energy_ij + energy_ji)
+
+        # Cap log p accept to 0.0 (max probability is 1).
+        log_p_accept = np.clip(log_p_accept, a_min=None, a_max=0.0)
+        p_accept = np.exp(log_p_accept)
+        neighbor_acceptance_rates[i] = np.mean(p_accept)
+        acceptance_rates_cis[i] = 2*scipy.stats.sem(p_accept, ddof=1)
+
+    return neighbor_acceptance_rates

@@ -17,11 +17,13 @@ import os
 import numpy as np
 
 from utils.analysis import get_analysis_cutoffs, get_free_energy_traj
+from utils.protocol import read_experiment_protocol
 
 
 YANK_DIR_PATH = os.path.join('..', 'yank')
 EXPERIMENTS_DIR_PATH = os.path.join(YANK_DIR_PATH, 'experiments')
 FREE_ENERGY_TRAJ_DIR_PATH = os.path.join(YANK_DIR_PATH, 'free_energy_trajectories')
+THERMO_LEN_DIR_PATH = os.path.join(YANK_DIR_PATH, 'thermo_length')
 
 
 # ============================================================
@@ -134,6 +136,44 @@ def get_experiment_name(experiment_dir_path):
         protocol_name = protocol_name[:len('manual')+2]
 
     return f'{receptor_name}-ligand{ligand_idx}-{protocol_name}-replicate{replicate_idx}'
+
+
+def experiment_name_to_info(experiment_name):
+    """Extract a few useful info on system, protocol, and replicate number encoded in the experiment name.
+
+    Parameters
+    ----------
+    experiment_name : str
+        The name assigned by get_experiment_name().
+
+    Returns
+    -------
+    system_name : str
+    receptor_name : str
+    ligand_idx : int
+        For example, for "CB8-ligand3", system_name is "CB8-ligand3",
+        receptor_name is "CB8" and ligand_idx is 3.
+    protocol_type : str
+        Wither "manual" or "trailblaze".
+    trailblaze_thermo_length_threshold : float or None
+        If manual protocol, this is None.
+    replicate_idx : int
+        0-based.
+
+    """
+    receptor_name, ligand_name, protocol_name, replicate = experiment_name.split('-')
+    system_name = receptor_name + '-' + ligand_name
+    ligand_idx = int(ligand_name[len('ligand'):])
+    if 'manual' in protocol_name:
+        protocol_type = 'manual'
+    else:
+        protocol_type = 'trailblaze'
+    trailblaze_thermo_length_threshold = float(protocol_name[len(protocol_type):]) / 10
+    replicate_idx = int(replicate[len('replicate'):])
+    return (
+        system_name, receptor_name, ligand_idx, protocol_type,
+        trailblaze_thermo_length_threshold, replicate_idx
+    )
 
 
 def get_remaining_cutoffs(n_energy_eval_interval, cleanup=False, n_iterations=None,
@@ -352,6 +392,103 @@ def read_free_energy_trajectory(file_base_path, cleanup=False, read_unmerged=Tru
 # THERMODYNAMIC LENGTH ANALYSIS
 # ============================================================
 
+def extract_thermo_length_and_acceptance(experiment_dir_path, as_numpy=True):
+    """Estimate the thermo length estimates and the average neighbor acceptance rates.
+
+    Parameters
+    ----------
+    experiment_dir_path : str
+        The path to the experiment directory.
+    as_numpy : bool
+        If True, the estimates of the thermodynamic length and the average
+        acceptance rates will be returned as numpy array, otherwise as a list.
+
+    Returns
+    -------
+    experiment_data : Dict[str, Dict[str, Iterable]]
+        experiment_data[phase_name][estimate] is
+    """
+    from utils.thermolength import (read_states_energies, estimate_thermo_length_from_definition,
+                                    estimate_thermo_length_from_JS, estimate_thermo_length_from_std,
+                                    compute_average_neighbor_acceptance_rates)
+
+    # Load the protocol.
+    protocol = read_experiment_protocol(experiment_dir_path)
+
+    experiment_data = {}
+    for phase_name, phase_protocol in protocol.items():
+        phase_data = {}
+
+        # Load MBAR energy matrix.
+        nc_file_path = os.path.join(experiment_dir_path, phase_name + '.nc')
+        mbar_energies = read_states_energies(nc_file_path)
+
+        # Compute the thermodynamic length estimates
+        L_def, dL_def = estimate_thermo_length_from_definition(mbar_energies, phase_protocol)
+        phase_data['L_def'] = L_def
+        phase_data['dL_def'] = dL_def
+        phase_data['L_JS'] = estimate_thermo_length_from_JS(mbar_energies)
+        std_thermo_lengths = estimate_thermo_length_from_std(mbar_energies)
+        phase_data['L_std_F'] = std_thermo_lengths[0]
+        phase_data['L_std_R'] = std_thermo_lengths[1]
+
+        # Compute the neighbor acceptance rates.
+        phase_data['acceptance'] = compute_average_neighbor_acceptance_rates(mbar_energies)
+
+        # Convert to list if necessary.
+        if not as_numpy:
+            for estimate_name, estimate in phase_data.items():
+                print(estimate_name, estimate)
+                phase_data[estimate_name] = estimate.tolist()
+
+        experiment_data[phase_name] = phase_data
+
+    return experiment_data
+
+
+def extract_all_thermo_lengths_and_acceptances(job_id=None, dry_run=False):
+    """Extract the thermo lengths and acceptance rates."""
+    # Find all experiments.
+    experiment_dir_paths = sorted(glob.glob(os.path.join(EXPERIMENTS_DIR_PATH, '*', '*')))
+
+    # Check if this is a dry run.
+    if dry_run:
+        jobs_to_run = []
+
+    # Find the experiment associated to this job ID. Otherwise, run all.
+    if not dry_run and job_id is not None:
+        # Job IDs are 1-based so we convert it to an index.
+        experiment_dir_paths = [experiment_dir_paths[job_id-1]]
+
+    for exp_idx, experiment_dir_path in enumerate(experiment_dir_paths):
+        # Determine output path file.
+        os.makedirs(THERMO_LEN_DIR_PATH, exist_ok=True)
+        output_file_path = os.path.join(
+            THERMO_LEN_DIR_PATH, get_experiment_name(experiment_dir_path) + '.json')
+
+        # Check if this was already computed.
+        if os.path.isfile(output_file_path):
+            continue
+
+        # Otherwise, flag this for running or compute the estimates.
+        if dry_run:
+            print('job_id =', exp_idx+1, ':', experiment_dir_path)
+            jobs_to_run.append(exp_idx+1)
+        else:
+            # Compute the estimates and store it.
+            experiment_data = extract_thermo_length_and_acceptance(experiment_dir_path, as_numpy=False)
+            with open(output_file_path, 'w') as f:
+                json.dump(experiment_data, f)
+
+    # Plot all the jobs to run.
+    if dry_run:
+        from yank.commands.status import find_contiguous_ids
+        print('Jobs to run:', find_contiguous_ids(jobs_to_run))
+
+
+# ============================================================
+# MAIN
+# ============================================================
 
 if __name__ == '__main__':
 
@@ -377,5 +514,8 @@ if __name__ == '__main__':
 
     # DO NOT RUN THIS IN PARALLEL WITH cleanup=True IF THERE ARE TEMPORARY
     # JOB-ID RESULTS TO MERGE OR YOU'LL RISK TO LOSE DATA!
-    print_remaining_cutoffs(n_energy_eval_interval, cleanup=True, read_unmerged=True, n_cutoffs_per_job=n_cutoffs_per_job, exclude=exclude)
+    # print_remaining_cutoffs(n_energy_eval_interval, cleanup=True, read_unmerged=True, n_cutoffs_per_job=n_cutoffs_per_job, exclude=exclude)
     # extract_free_energy_trajectories(n_energy_eval_interval, args.jobid-1, n_cutoffs_per_job=n_cutoffs_per_job, exclude=exclude)
+
+    # Extract thermo length and neighbor acceptance rates.
+    extract_all_thermo_lengths_and_acceptances(job_id=args.jobid, dry_run=False)
