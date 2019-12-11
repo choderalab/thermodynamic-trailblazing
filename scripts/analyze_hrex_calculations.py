@@ -17,6 +17,7 @@ import os
 import numpy as np
 
 from utils.analysis import get_analysis_cutoffs, get_free_energy_traj
+from utils.mbarweights import DoublySelfConsistentAnalyzer
 from utils.protocol import read_experiment_protocol
 
 
@@ -50,11 +51,13 @@ class FreeEnergyTrajectory:
         MBAR class.
     f_boots : numpy.ndarray, optional
         The trajectory of the MBAR bootstrap samples (if there are any).
+    trailblaze_cost : float, optional
+        The cost of the trailblaze path.
 
     """
 
     @classmethod
-    def from_dict(cls, data):
+    def from_dict(cls, data, trailblaze_cost=0):
         """Initialize the free energy trajectory from the dict representation.
 
         Parameters
@@ -68,7 +71,7 @@ class FreeEnergyTrajectory:
         df_traj = np.empty(len(energy_evals))
 
         # Check if there are bootstrap distributions.
-        has_boots = len(data[energy_evals[0]]) > 2
+        has_boots = len(energy_evals) > 0 and len(data[energy_evals[0]]) > 2
         if has_boots:
             n_boots = len(data[energy_evals[0]][2])
             f_boots = np.empty(shape=(len(energy_evals), n_boots))
@@ -86,6 +89,7 @@ class FreeEnergyTrajectory:
         fet.energy_evals = energy_evals
         fet.f_traj = f_traj
         fet.df_traj = df_traj
+        fet.trailblaze_cost = trailblaze_cost
 
         if has_boots:
             fet.f_boots = f_boots
@@ -96,6 +100,16 @@ class FreeEnergyTrajectory:
 
     def __len__(self):
         return len(self.energy_evals)
+
+    @property
+    def shifted_energy_evals(self):
+        """The number of energy evaluations accounting for the cost of trailblaze (read-only)."""
+        return self.energy_evals + self.trailblaze_cost
+
+    def shifted_data(self):
+        """The data after the keys have been shifted to account for the cost of trailblaze (read-only)."""
+        return collections.OrderedDict((ee+self.trailblaze_cost, x) for ee, x in self.data.items())
+
 
 
 def get_experiment_name(experiment_dir_path):
@@ -135,6 +149,10 @@ def get_experiment_name(experiment_dir_path):
         # Remove the name of the system from the label (include only manual and threshold).
         protocol_name = protocol_name[:len('manual')+2]
 
+    # Add whether this was an unseeded protocol.
+    if 'unseeded' in experiment_dir_path:
+        protocol_name += 'unseeded'
+
     return f'{receptor_name}-ligand{ligand_idx}-{protocol_name}-replicate{replicate_idx}'
 
 
@@ -153,8 +171,10 @@ def experiment_name_to_info(experiment_name):
     ligand_idx : int
         For example, for "CB8-ligand3", system_name is "CB8-ligand3",
         receptor_name is "CB8" and ligand_idx is 3.
+    protocol_name : str
+        Full name of the protocol.
     protocol_type : str
-        Wither "manual" or "trailblaze".
+        "manual", "trailblaze", "trailblaze-unseeded", or "trailblaze-short".
     trailblaze_thermo_length_threshold : float or None
         If manual protocol, this is None.
     replicate_idx : int
@@ -164,20 +184,29 @@ def experiment_name_to_info(experiment_name):
     receptor_name, ligand_name, protocol_name, replicate = experiment_name.split('-')
     system_name = receptor_name + '-' + ligand_name
     ligand_idx = int(ligand_name[len('ligand'):])
-    if 'manual' in protocol_name:
+    if 'unseeded' in protocol_name:
+        protocol_type = 'trailblaze-unseeded'
+        trailblaze_thermo_length_threshold = float(protocol_name[len('trailblaze'):-len('unseeded')]) / 10
+    elif 'short' in protocol_name:
+        protocol_type = 'trailblaze-short'
+        trailblaze_thermo_length_threshold = float(protocol_name[len('trailblaze'):-len('short')]) / 10
+    elif 'manual' in protocol_name:
         protocol_type = 'manual'
+        trailblaze_thermo_length_threshold = float(protocol_name[len('manual'):]) / 10
     else:
         protocol_type = 'trailblaze'
-    trailblaze_thermo_length_threshold = float(protocol_name[len(protocol_type):]) / 10
+        trailblaze_thermo_length_threshold = float(protocol_name[len('trailblaze'):]) / 10
+
     replicate_idx = int(replicate[len('replicate'):])
     return (
-        system_name, receptor_name, ligand_idx, protocol_type,
+        system_name, receptor_name, ligand_idx, protocol_name, protocol_type,
         trailblaze_thermo_length_threshold, replicate_idx
     )
 
 
 def get_remaining_cutoffs(n_energy_eval_interval, cleanup=False, n_iterations=None,
-                          exclude=None, read_unmerged=True):
+                          filter_func=None, read_unmerged=True,
+                          analysis_dir_path=FREE_ENERGY_TRAJ_DIR_PATH):
     """Return the number of jobs remaining for each experiment.
 
     Parameters
@@ -190,11 +219,15 @@ def get_remaining_cutoffs(n_energy_eval_interval, cleanup=False, n_iterations=No
     n_iterations : int, optional
         The total number of iterations to consider. If not given, the function
         will read the number of iterations from the netcdf file.
-    exclude : Set[str]
-        A set of experiment directory paths that are not going to be analyzed.
+    filter_func : Callable[[str], bool], optional
+        A function taking the experiment directory path and returning a bool
+        specifying whether the experiment should be analyzed (True) or not (False).
+        By default, all experiments are analyzed.
     read_unmerged : bool, optional, default True
         If False, the recently added files created by analysis jobs are not
         read and they will still appear in the remaining cutoffs.
+    analysis_dir_path : str, optional
+        The path to the directory where the analysis is stored.
 
     Returns
     -------
@@ -205,28 +238,22 @@ def get_remaining_cutoffs(n_energy_eval_interval, cleanup=False, n_iterations=No
 
     """
     # Handle default arguments.
-    if exclude is None:
-        exclude = set()
+    if filter_func is None:
+        filter_func = lambda x: True
 
     remaining_cutoffs = collections.OrderedDict()
 
     for experiment_dir_path in sorted(glob.glob(os.path.join(EXPERIMENTS_DIR_PATH, '*', '*'))):
         # Ignore experiments that are marked for exclusion.
-        if experiment_dir_path in exclude:
+        if not filter_func(experiment_dir_path):
             continue
 
         experiment_name = get_experiment_name(experiment_dir_path)
-        output_file_base_path = os.path.join(
-            FREE_ENERGY_TRAJ_DIR_PATH, experiment_name)
+        output_file_base_path = os.path.join(analysis_dir_path, experiment_name)
 
         # Check which number of energy evaluations have been already analyzed.
         free_energy_traj = read_free_energy_trajectory(
             output_file_base_path, cleanup=cleanup, read_unmerged=read_unmerged)
-        # TODO: REMOVE ME
-        if 'replicate0' in experiment_name:
-            n_iterations = 10000
-        else:
-            n_iterations = 5000
         n_energy_eval_cutoffs, _ = get_analysis_cutoffs(experiment_dir_path, n_energy_eval_interval,
                                                         n_iterations=n_iterations)
         cutoffs = np.array([neec for neec in n_energy_eval_cutoffs if neec not in free_energy_traj.data])
@@ -251,8 +278,12 @@ def print_remaining_cutoffs(*args, n_cutoffs_per_job=None, **kwargs):
     n_iterations : int, optional
         The total number of iterations to consider. If not given, the function
         will read the number of iterations from the netcdf file.
-    exclude : Set[str]
-        A set of experiment directory paths that are not going to be analyzed.
+    filter_func : Callable[[str], bool], optional
+        A function taking the experiment directory path and returning a bool
+        specifying whether the experiment should be analyzed (True) or not (False).
+        By default, all experiments are analyzed.
+    analysis_dir_path : str, optional
+        The path to the directory where the analysis is stored.
 
     """
     tot_n_jobs = 0
@@ -277,7 +308,9 @@ def print_remaining_cutoffs(*args, n_cutoffs_per_job=None, **kwargs):
     print('TOTAL:', tot_n_remaining_cutoffs, tot_n_jobs_str)
 
 
-def extract_free_energy_trajectories(n_energy_eval_interval, job_id, n_cutoffs_per_job=None, **kwargs):
+def extract_free_energy_trajectories(n_energy_eval_interval, job_id, n_cutoffs_per_job=None,
+                                     analyzer_cls=None, analysis_dir_path=FREE_ENERGY_TRAJ_DIR_PATH,
+                                     **kwargs):
     """Compute the free energy trajectory.
 
     The free energies will be separated by the given interval of energy evaluation.
@@ -293,18 +326,25 @@ def extract_free_energy_trajectories(n_energy_eval_interval, job_id, n_cutoffs_p
     n_cutoffs_per_job : int, optional
         If given, the experiment is further split into several jobs that
         can be run in parallel and analyze at most n_cutoffs_per_job energy evaluations.
+    analyzer_cls : MultiStateAnalyzer, optional
+        A YANK analyzer. By default, ``YankReplicaExchangeAnalyzer`` is used.
+    analysis_dir_path : str, optional
+        The path to the directory where to store the analysis.
     n_iterations : int, optional
         The total number of iterations to consider. If not given, the function
         will read the total number of run iterations from the netcdf file.
-    exclude : Set[str]
-        A set of experiment directory paths that are not going to be analyzed.
+    filter_func : Callable[[str], bool], optional
+        A function taking the experiment directory path and returning a bool
+        specifying whether the experiment should be analyzed (True) or not (False).
+        By default, all experiments are analyzed.
 
     """
     # Get the number of cutoffs that still need to be analyzed.
     # Ignore those that were updated so that the number of jobs
     # doesn't change until we cleanup.
     remaining_cutoffs = get_remaining_cutoffs(n_energy_eval_interval, cleanup=False,
-                                              read_unmerged=False, **kwargs)
+                                              read_unmerged=False, analysis_dir_path=analysis_dir_path,
+                                              **kwargs)
 
     # Divide the remaining cutoffs into jobs.
     jobs = []
@@ -325,12 +365,13 @@ def extract_free_energy_trajectories(n_energy_eval_interval, job_id, n_cutoffs_p
     # Analyze the calculation.
     experiment_dir_path, n_energy_eval_cutoffs = jobs[job_id][0], jobs[job_id][1]
     free_energy_traj = get_free_energy_traj(
-        experiment_dir_path, n_energy_eval_cutoffs=n_energy_eval_cutoffs)
+        experiment_dir_path, n_energy_eval_cutoffs=n_energy_eval_cutoffs,
+        analyzer_cls=analyzer_cls)
 
     # Build path to save the file.
-    os.makedirs(FREE_ENERGY_TRAJ_DIR_PATH, exist_ok=True)
+    os.makedirs(analysis_dir_path, exist_ok=True)
     output_file_path = os.path.join(
-        FREE_ENERGY_TRAJ_DIR_PATH,
+        analysis_dir_path,
         get_experiment_name(experiment_dir_path) + f'-{job_id}.json'
     )
     with open(output_file_path, 'w') as f:
@@ -356,6 +397,7 @@ def read_free_energy_trajectory(file_base_path, cleanup=False, read_unmerged=Tru
         The free energy trajectory.
 
     """
+
     if cleanup and not read_unmerged:
         raise ValueError('Cannot clean up the output of the jobs without reading it.')
 
@@ -408,7 +450,8 @@ def extract_thermo_length_and_acceptance(experiment_dir_path, as_numpy=True):
     experiment_data : Dict[str, Dict[str, Iterable]]
         experiment_data[phase_name][estimate] is
     """
-    from utils.thermolength import (read_states_energies, estimate_thermo_length_from_definition,
+    from utils.analysis import read_states_energies
+    from utils.thermolength import (estimate_thermo_length_from_definition,
                                     estimate_thermo_length_from_JS, estimate_thermo_length_from_std,
                                     compute_average_neighbor_acceptance_rates)
 
@@ -448,8 +491,16 @@ def extract_thermo_length_and_acceptance(experiment_dir_path, as_numpy=True):
 
 def extract_all_thermo_lengths_and_acceptances(job_id=None, dry_run=False):
     """Extract the thermo lengths and acceptance rates."""
-    # Find all experiments.
-    experiment_dir_paths = sorted(glob.glob(os.path.join(EXPERIMENTS_DIR_PATH, '*', '*')))
+    # Find all experiments. Analyze only the first replicate for now.
+    # experiment_dir_paths = sorted(glob.glob(os.path.join(EXPERIMENTS_DIR_PATH, '*', '*')))
+    experiment_dir_paths = sorted(glob.glob(os.path.join(EXPERIMENTS_DIR_PATH, '*-main', '*')))
+
+    # Remove the "unseeded" experiments.
+    to_remove = set()
+    for i, experiment_dir_path in enumerate(experiment_dir_paths):
+        if 'unseeded' in experiment_dir_path:
+            to_remove.add(i)
+    experiment_dir_paths = [path for i, path in enumerate(experiment_dir_paths) if i not in to_remove]
 
     # Check if this is a dry run.
     if dry_run:
@@ -492,30 +543,65 @@ def extract_all_thermo_lengths_and_acceptances(job_id=None, dry_run=False):
 
 if __name__ == '__main__':
 
-    # import logging
-    # logging.basicConfig(
-    #     level=logging.DEBUG,
-    #     format='%(asctime)-15s: %(levelname)s - %(name)s - %(message)s'
-    # )
+    import logging
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)-15s: %(levelname)s - %(name)s - %(message)s'
+    )
 
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--jobid', type=int)
     args = parser.parse_args()
 
-    n_energy_eval_interval = 1e6
+    n_energy_eval_interval = 2e6
     n_cutoffs_per_job = 10
-    exclude = {
-        '../yank/experiments/experiment-CB8-main/trailblaze05_CB8systemCB8ligands1',
-        '../yank/experiments/experiment-T4-main/trailblaze05_T4systemT4L99Aligands14',
-        '../yank/experiments/experiment-T4-main/trailblaze05_T4systemT4L99Aligands4',
-        '../yank/experiments/experiment-T4-main/trailblaze05_T4systemT4L99Aligands9'
-    }
+
+    def filter_func(exp_dir_path):
+        replicate_ge_4 = '_3' in exp_dir_path or '_4' in exp_dir_path
+
+        # Always discard replicates of T4 that are incomplete.
+        if 'T4' in exp_dir_path and replicate_ge_4:
+            return False
+
+        # excluded_ge_4_dirs = [
+        # ]
+        # for excluded_dir in excluded_ge_4_dirs:
+        #     if excluded_dir in exp_dir_path and replicate_ge_4:
+        #         return False
+
+        # accepted_ge_4_dirs = [
+        # ]
+        # for accepted_dir in accepted_ge_4_dirs:
+        #     if accepted_dir in exp_dir_path and replicate_ge_4:
+        #         return True
+
+        # excluded_dirs = [
+        # ]
+        # for excluded_dir in excluded_dirs:
+        #     if excluded_dir == exp_dir_path:
+        #         return False
+        accepted_dirs = [
+            '../yank/experiments/experiment-CB8-main/trailblaze05_CB8systemCB8ligands1',
+            '../yank/experiments/experiment-CB8-main/trailblaze20_CB8systemCB8ligands1'
+        ]
+        for accepted_dir in accepted_dirs:
+            if accepted_dir == exp_dir_path:
+                return True
+
+        return False
+
 
     # DO NOT RUN THIS IN PARALLEL WITH cleanup=True IF THERE ARE TEMPORARY
     # JOB-ID RESULTS TO MERGE OR YOU'LL RISK TO LOSE DATA!
-    # print_remaining_cutoffs(n_energy_eval_interval, cleanup=True, read_unmerged=True, n_cutoffs_per_job=n_cutoffs_per_job, exclude=exclude)
-    # extract_free_energy_trajectories(n_energy_eval_interval, args.jobid-1, n_cutoffs_per_job=n_cutoffs_per_job, exclude=exclude)
+    print_remaining_cutoffs(n_energy_eval_interval, cleanup=True, read_unmerged=True,
+                            n_cutoffs_per_job=n_cutoffs_per_job,
+                            # analysis_dir_path=os.path.join(YANK_DIR_PATH, 'doubly_self_consistent_free_energy_trajectories'),
+                            filter_func=filter_func)
+    # extract_free_energy_trajectories(n_energy_eval_interval, args.jobid-1, n_cutoffs_per_job=n_cutoffs_per_job,
+    #                                  # analyzer_cls=DoublySelfConsistentAnalyzer,
+    #                                  # analysis_dir_path=os.path.join(YANK_DIR_PATH, 'doubly_self_consistent_free_energy_trajectories'),
+    #                                  filter_func=filter_func)
 
     # Extract thermo length and neighbor acceptance rates.
-    extract_all_thermo_lengths_and_acceptances(job_id=args.jobid, dry_run=False)
+    # extract_all_thermo_lengths_and_acceptances(job_id=args.jobid, dry_run=False)

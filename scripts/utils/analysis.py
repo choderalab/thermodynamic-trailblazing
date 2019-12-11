@@ -10,6 +10,48 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
+# ============================================================
+# UTILITIES
+# ============================================================
+
+def read_states_energies(nc_file):
+    """Return the MBAR energy matrix in kln form.
+
+    Parameters
+    ----------
+    nc_file : str or Reporter
+        The path to the NetCDF file containing the energies or a reporter.
+
+    Returns
+    -------
+    mbar_energies : np.array
+        mbar_energies[k][l][n] is the reduced potential sampled at state k
+        and evaluated at state l at iteration n.
+
+    """
+    if isinstance(nc_file, str):
+        from openmmtools.multistate import MultiStateReporter
+        reporter = MultiStateReporter(nc_file, open_mode='r')
+    else:
+        reporter = nc_file
+
+    # Read the mbar energies in iteration - replica - state form.
+    try:
+        replica_energies, _, _ = reporter.read_energies()
+        replicas_state_indices = reporter.read_replica_thermodynamic_states()
+    finally:
+        reporter.close()
+
+    # Create the mbar energies in state - state - iteration form.
+    n_iterations, n_replicas, n_states = replica_energies.shape
+    states_energies = np.empty(shape=(n_states, n_states, n_iterations), dtype=np.float64)
+    for iteration in range(n_iterations):
+        state_indices = replicas_state_indices[iteration]
+        states_energies[state_indices,:,iteration] = replica_energies[iteration,:,:]
+
+    return states_energies
+
+
 # =============================================================================
 # YANK ANALYSIS AT MULTIPLE ITERATIONS
 # =============================================================================
@@ -40,6 +82,56 @@ def round_to_closest_multiple(values, divisor):
     return divisible_values
 
 
+def read_n_states_and_steps(experiment_dir_path, trailblaze_sampled_protocol=False):
+    """Read off the YAML file the number of states for complex and solvent and the number of steps per iteration.
+
+    Parameters
+    ----------
+    experiment_dir_path : str
+        The path to the directory containing the experiment data.
+    trailblaze_sampled_protocol : bool, optional, default False
+        If True, the number of states sampled during the trailblaze
+        algorithm (if run) is returned rather than the number of states
+        in the simulated protocol. This can be different if after the
+        bidirectional redistribution.
+
+    Returns
+    -------
+    n_states_complex : int
+        The number of states in the complex alchemical path.
+    n_states_solvent : int
+        The number of states in the solvent alchemical path.
+    n_steps_per_iteration : int
+        The number of steps (per state) per iteration.
+
+    """
+    from yank.experiment import YankLoader
+
+    # Load the script
+    experiment_name = os.path.basename(os.path.normpath(experiment_dir_path))
+    with open(os.path.join(experiment_dir_path, experiment_name + '.yaml'), 'r') as f:
+        script_dict = yaml.load(f, Loader=YankLoader)
+
+    # Obtain number of steps (per state) per iteration.
+    n_steps_per_iteration = script_dict['options']['default_nsteps_per_iteration']
+
+    # Obtain number of states.
+    protocol = {}
+    if trailblaze_sampled_protocol and os.path.isdir(os.path.join(experiment_dir_path, 'trailblaze')):
+        for phase_name in ['complex', 'solvent']:
+            with open(os.path.join(experiment_dir_path, 'trailblaze', phase_name, 'protocol.yaml')) as f:
+                protocol[phase_name] = yaml.load(f, Loader=yaml.FullLoader)
+    else:
+        protocol_name = script_dict['experiments']['protocol']
+        for phase_name in ['complex', 'solvent']:
+            protocol[phase_name] = script_dict['protocols'][protocol_name][phase_name]['alchemical_path']
+    n_states_complex = len(protocol['complex']['lambda_sterics'])
+    n_states_solvent = len(protocol['solvent']['lambda_sterics'])
+    # n_states_solvent = 62  # TODO: REMOVE ME: Number of states in solvent phase of SAMPLing protocol.
+
+    return n_states_complex, n_states_solvent, n_steps_per_iteration
+
+
 def get_energy_evaluations_per_iteration(experiment_dir_path):
     """Compute the number of energy evaluations necessary to run N iteration of the given script.
 
@@ -52,26 +144,11 @@ def get_energy_evaluations_per_iteration(experiment_dir_path):
     -------
     energy_evaluations_per_iteration : int
     """
-    from yank.experiment import YankLoader
-
-    # Load the script
-    experiment_name = os.path.basename(os.path.normpath(experiment_dir_path))
-    with open(os.path.join(experiment_dir_path, experiment_name + '.yaml'), 'r') as f:
-        script_dict = yaml.load(f, Loader=YankLoader)
-
-    # Obtain number of states.
-    protocol_name = script_dict['experiments']['protocol']
-    protocol = script_dict['protocols'][protocol_name]
-    n_states_complex = len(protocol['complex']['alchemical_path']['lambda_sterics'])
-    n_states_solvent = len(protocol['solvent']['alchemical_path']['lambda_sterics'])
-    # n_states_solvent = 62  # TODO: REMOVE ME: Solvent states in SAMPLing protocol.
+    n_states_complex, n_states_solvent, n_steps_per_iteration = read_n_states_and_steps(experiment_dir_path)
     n_states = n_states_complex + n_states_solvent
 
-    # Obtain the number of integration steps per iteration.
-    n_steps_per_iterations = script_dict['options']['default_nsteps_per_iteration']
-
     # Compute the number of energy/force evaluations per iteration.
-    md_energy_evaluations = n_states * n_steps_per_iterations
+    md_energy_evaluations = n_states * n_steps_per_iteration
     # Rotation and translation for the complex phase require computing the initial and final energies.
     mc_energy_evaluations = 2 * 2 * n_states_complex
     # Technically, we compute only the changed force groups so this is an overestimation.
@@ -147,16 +224,30 @@ def get_analysis_cutoffs(experiment_dir_path, n_energy_eval_interval, n_iteratio
 
     """
     n_energy_eval_per_iteration = get_energy_evaluations_per_iteration(experiment_dir_path)
-    # TODO: Warning! This assumes the solvent phase has the same number of iterations!
-    nc_file_path = os.path.join(experiment_dir_path, 'complex.nc')
 
+    # The conversion n_energy_evaluations -> iterations work only
+    # if the number of iterations for complex and solvent is the same
+    # so we truncate the analysis to the minimum between the two.
+    # The number of iterations in the two phases might be different
+    # because I decided later to round the number of iterations to
+    # the nearest thousand and run only for half the time the 4-th
+    # and 5-th replicates.
     if n_iterations is None:
         from openmmtools.multistate.multistatereporter import MultiStateReporter
-        reporter = MultiStateReporter(nc_file_path, open_mode='r')
-        try:
-            n_iterations = reporter.read_last_iteration(last_checkpoint=False)
-        finally:
-            reporter.close()
+
+        phase_n_iterations = {}
+        for phase_name in ['complex', 'solvent']:
+            nc_file_path = os.path.join(experiment_dir_path, phase_name + '.nc')
+            reporter = MultiStateReporter(nc_file_path, open_mode='r')
+            try:
+                phase_n_iterations[phase_name] = reporter.read_last_iteration(last_checkpoint=False)
+            finally:
+                reporter.close()
+
+        n_iterations = min([i for i in phase_n_iterations.values()])
+        for phase_name, i in phase_n_iterations.items():
+            if i != n_iterations:
+                logger.warning(f'Truncating {phase_name} from {i} to {n_iterations} iterations')
 
     tot_n_energy_eval_per_iteration = n_energy_eval_per_iteration * n_iterations
     n_energy_eval_cutoffs = np.arange(n_energy_eval_interval, tot_n_energy_eval_per_iteration, n_energy_eval_interval)
@@ -167,7 +258,7 @@ def get_analysis_cutoffs(experiment_dir_path, n_energy_eval_interval, n_iteratio
 
 def get_free_energy_traj(experiment_dir_path,
                          n_energy_eval_interval=None, n_energy_eval_cutoffs=None,
-                         job_id=None, n_jobs=None):
+                         analyzer_cls=None, job_id=None, n_jobs=None):
     """Run analysis on a set of cutoffs.
 
     Parameters
@@ -180,6 +271,8 @@ def get_free_energy_traj(experiment_dir_path,
     n_energy_eval_cutoffs : int, optional
         As an alternative to specifying n_energy_eval_interval, you can
         specify directly at which number of energy evaluations to run the analysis.
+    analyzer_cls : MultiStateAnalyzer, optional
+        A YANK analyzer. By default, ``YankReplicaExchangeAnalyzer`` is used.
     job_id : int, optional
         The ID (from 0 to n_jobs-1) of the section of the trajectory
         computed when divided in njobs points of equal size.
@@ -197,11 +290,14 @@ def get_free_energy_traj(experiment_dir_path,
 
     """
     from openmmtools.multistate.multistatereporter import MultiStateReporter
-    from yank.analyze import YankReplicaExchangeAnalyzer
 
     if (n_energy_eval_interval is None) == (n_energy_eval_cutoffs is None):
         raise ValueError('One and only one between n_energy_eval_interval and '
                          'n_energy_eval_cutoffs should be specified.')
+
+    if analyzer_cls is None:
+        from yank.analyze import YankReplicaExchangeAnalyzer
+        analyzer_cls = YankReplicaExchangeAnalyzer
 
     Deltaf_traj = None
     dDeltaf_traj = None
@@ -217,7 +313,7 @@ def get_free_energy_traj(experiment_dir_path,
         # Open the analyzer.
         nc_file_path = os.path.join(experiment_dir_path, phase_name + '.nc')
         reporter = MultiStateReporter(nc_file_path)
-        analyzer = YankReplicaExchangeAnalyzer(reporter)
+        analyzer = analyzer_cls(reporter)
 
         # Obtain the iterations cutoffs at which to analyze the calculation.
         if n_energy_eval_cutoffs is None:

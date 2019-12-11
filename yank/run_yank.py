@@ -63,6 +63,7 @@ if __name__ == '__main__':
     parser.add_argument('--jobid', metavar='jobid', type=int, help='Job ID (from 1 to njobs).')
     parser.add_argument('--njobs', metavar='njobs', type=int, help='Total number of jobs (i.e. of experiments).')
     parser.add_argument('--build', action='store_true', help='Only build the experiments')
+    parser.add_argument('--setniterations', action='store_true', help='Just set the final number of iterations without running')
     parser.add_argument('--status', action='store_true', help='Only build the experiments')
     args = parser.parse_args()
 
@@ -86,7 +87,34 @@ if __name__ == '__main__':
         for system_name, target_n_energy_eval in N_ENERGY_EVALS.items():
             if system_name in experiment_dir_path:
                 break
+
+        # TODO: REMOVE ME - Initially, run only for half the time.
+        # target_n_energy_eval /= 2
+
+        # Truncate to the nearest checkpoint interval.
         n_iterations_to_run = int(math.ceil(target_n_energy_eval / n_energy_evals_per_iteration))
+        n_iterations_to_run = int(round(n_iterations_to_run, -3))
+
+        # Run at least 10000 iterations.
+        # This is just for experiment-T4-main/trailblaze05_T4systemT4L99Aligands4: job_id=54
+        # n_iterations_to_run = max(n_iterations_to_run, 10000)
+
+        # Check if we just need to set the number of iterations.
+        if args.setniterations is True:
+            from yank.yank import AlchemicalPhase
+
+            for phase in experiment.phases:
+                # We need to change the number of iterations only if we're
+                # resuming otherwise this will be set correctly on creation.
+                # Check also that the number of iteration needs to be changed.
+                if isinstance(phase, str) and AlchemicalPhase.read_status(phase) != n_iterations_to_run:
+                    # Resume.
+                    alchemical_phase = AlchemicalPhase.from_storage(phase)
+                    alchemical_phase.number_of_iterations = n_iterations_to_run
+                    del alchemical_phase
+
+            # We don't run the experiment when setniterations is set.
+            continue
 
         # Run experiment.
         experiment.number_of_iterations = n_iterations_to_run
