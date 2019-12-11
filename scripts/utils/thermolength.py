@@ -6,45 +6,6 @@ import scipy.integrate
 
 
 # =============================================================================
-# UTILITIES
-# =============================================================================
-
-def read_states_energies(nc_file_path):
-    """Return the MBAR energy matrix in kln form.
-
-    Parameters
-    ----------
-    nc_file_path : str
-        The path to the NetCDF file containing the energies.
-
-    Returns
-    -------
-    mbar_energies : np.array
-        mbar_energies[k][l][n] is the reduced potential sampled at state k
-        and evaluated at state l at iteration n.
-
-    """
-    from openmmtools.multistate import MultiStateReporter
-    reporter = MultiStateReporter(nc_file_path, open_mode='r')
-
-    # Read the mbar energies in iteration - replica - state form.
-    try:
-        replica_energies, _, _ = reporter.read_energies()
-        replicas_state_indices = reporter.read_replica_thermodynamic_states()
-    finally:
-        reporter.close()
-
-    # Create the mbar energies in state - state - iteration form.
-    n_iterations, n_replicas, n_states = replica_energies.shape
-    states_energies = np.empty(shape=(n_states, n_states, n_iterations), dtype=np.float64)
-    for iteration in range(n_iterations):
-        state_indices = replicas_state_indices[iteration]
-        states_energies[state_indices,:,iteration] = replica_energies[iteration,:,:]
-
-    return states_energies
-
-
-# =============================================================================
 # THERMO LENGTH ESTIMATORS
 # =============================================================================
 
@@ -87,7 +48,6 @@ def estimate_thermo_length_from_definition(mbar_energies, protocol):
     # We re-parametrize the lambda path to have a single 1-dimensional variable
     # alpha(lambda) = lambda_restraints + (1-lambda_electro) + (1-lambda_sterics).
     dthermo_length = []
-    alphas = [0.0]
 
     for state_idx in range(n_states):
         # At the end states, we use forward/backward difference
@@ -107,13 +67,9 @@ def estimate_thermo_length_from_definition(mbar_energies, protocol):
         dalpha = l1_norm_diff_lambda(next_state, prev_state)
         dthermo_length.append(np.std(du/dalpha, ddof=1))
 
-        # We have already added the dalpha between the last two states in the second to last cycle.
-        if state_idx < n_states-1:
-            alphas.append(alphas[-1] + dalpha)
-
     # Compute the cumulative thermo length.
     dthermo_length = np.array(dthermo_length)
-    alphas = np.array(alphas)
+    alphas = [0.0] + np.cumsum([l1_norm_diff_lambda(i, i+1) for i in range(n_states-1)]).tolist()
     thermo_length = scipy.integrate.cumtrapz(dthermo_length, alphas, initial=0.0)
 
     return thermo_length, dthermo_length
@@ -190,7 +146,7 @@ def estimate_thermo_length_from_JS(mbar_energies, step=1):
     n_states = mbar_energies.shape[0]
 
     # Find JS divergences between neighbor states.
-    JS_divergences = np.empty(shape=n_states-1)
+    JS_divergences = np.empty(shape=n_states)
 
     for state_idx in range(n_states-1):
         next_state_idx = state_idx + 1
@@ -207,7 +163,7 @@ def estimate_thermo_length_from_JS(mbar_energies, step=1):
 
         # Compute JS Divergence according to Crooks 2007.
         JS_divergence = log_likelihood / 2 / n_iterations + np.log(2)
-        JS_divergences[state_idx] = JS_divergence
+        JS_divergences[state_idx+1] = JS_divergence
 
     # Estimate thermo length according to Crooks 2007.
     return np.sqrt(8) * np.cumsum(np.sqrt(JS_divergences))
@@ -245,8 +201,8 @@ def estimate_thermo_length_from_std(mbar_energies, step=1):
     n_states = mbar_energies.shape[0]
 
     # Find std between neighbor states.
-    std_F = np.empty(shape=n_states-1)
-    std_R = np.empty(shape=n_states-1)
+    std_F = np.empty(shape=n_states)
+    std_R = np.empty(shape=n_states)
 
     for state_idx in range(n_states-1):
         next_state_idx = state_idx + 1
@@ -256,8 +212,8 @@ def estimate_thermo_length_from_std(mbar_energies, step=1):
         w_R = mbar_energies[next_state_idx, state_idx, :] - mbar_energies[next_state_idx, next_state_idx, :]
 
         # Compute also std of work.
-        std_F[state_idx] = np.std(w_F, ddof=1)
-        std_R[state_idx] = np.std(w_R, ddof=1)
+        std_F[state_idx+1] = np.std(w_F, ddof=1)
+        std_R[state_idx+1] = np.std(w_R, ddof=1)
 
     # Compute the estimate of the thermo length.
     cum_std_F, cum_std_R = np.cumsum(std_F), np.cumsum(std_R)
